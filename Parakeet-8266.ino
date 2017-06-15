@@ -24,8 +24,8 @@
 #define my_user_agent        "parakeet-8266"
 #define my_password_code     "12543"
 
-#define my_wifi_ssid         "gosha"
-#define my_wifi_pwd          "01gjgfjlbyhfp"
+#define my_wifi_ssid         "ssid"
+#define my_wifi_pwd          "password"
 
 //ESP8266WiFiMulti WiFiMulti;
 
