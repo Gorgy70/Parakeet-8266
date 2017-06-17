@@ -9,13 +9,18 @@
 
 #include <ESP8266HTTPClient.h>
 
+extern "C" {
+#include "user_interface.h"
+}
+
 #include "cc2500_REG.h"
 
 #define GDO0_PIN D1            // Цифровой канал, к которму подключен контакт GD0 платы CC2500
 
 
 #define NUM_CHANNELS (4)      // Кол-во проверяемых каналов
-#define FIVE_MINUTE 300000    // 5 минут
+#define FIVE_MINUTE  300000    // 5 минут
+#define THREE_MINUTE 180000    // 3 минуты
 
 #define RADIO_BUFFER_LEN 200 // Размер буфера для приема данных от GSM модема
 
@@ -52,6 +57,7 @@ byte misses_until_failure = 2;                                                  
 byte wifi_wait_tyme = 100; // Время ожидания соединения WiFi в секундах
 
 char radio_buff[RADIO_BUFFER_LEN]; // Буффер для чтения данных и прочих нужд
+volatile boolean wake_up_flag;
 
 // Коды ошибок мигают лампочкой в двоичной системе
 // 1 (0001) - Нет модключения к WiFi
@@ -732,6 +738,34 @@ void print_packet() {
 #endif
 }
 
+void my_wakeup_cb() {
+  wake_up_flag = true;
+#ifdef DEBUG
+  Serial.println("WakeUp callback");
+#endif 
+}
+bool light_sleep(unsigned long time_ms) {
+
+  unsigned long sleep_time;
+  
+  wake_up_flag = false;
+  wifi_station_disconnect();
+  wifi_set_opmode(NULL_MODE);  
+  wifi_fpm_set_sleep_type(LIGHT_SLEEP_T);
+  wifi_fpm_open();
+//    wifi_fpm_set_sleep_type(MODEM_SLEEP_T);
+  wifi_fpm_set_wakeup_cb(my_wakeup_cb);
+  wifi_fpm_do_sleep(time_ms*1000) ; 
+//  sleep_time = time_ms*960;
+  wifi_fpm_do_sleep(sleep_time) ; 
+  while (!wake_up_flag) {
+    delay(500);
+  }
+  wifi_fpm_do_wakeup();
+  wifi_fpm_close();
+  wifi_set_opmode(STATION_MODE);         // set station mode
+}
+
 void loop() {
   unsigned long current_time;
   
@@ -746,11 +780,23 @@ void loop() {
 #endif
     current_time = millis();
     if  (next_time > current_time && (next_time - current_time) < FIVE_MINUTE)  {
-
 #ifdef DEBUG
-      Serial.println("Delay");
+      Serial.println("GoTo sleep");
+      delay(500);
+      current_time = millis();
 #endif
-      delay(next_time - current_time - 2000); // Можно спать до следующего пакета. С режимом сна будем разбираться позже
+      if ((next_time - current_time) > THREE_MINUTE) {       
+        light_sleep(THREE_MINUTE);
+#ifdef DEBUG
+        current_time = millis();
+        Serial.print("Time = ");
+        Serial.println(current_time);
+#endif
+        delay(500);
+        current_time = millis();
+      }
+      light_sleep(next_time - current_time - 2000);
+//      delay(next_time - current_time - 2000); // Можно спать до следующего пакета. С режимом сна будем разбираться позже
 //      ESP.deepSleep((next_time - current_time - 2000)*1000,RF_DISABLED);
       
 #ifdef DEBUG
