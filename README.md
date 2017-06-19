@@ -35,6 +35,7 @@ https://www.arduino.cc/en/Main/Software
 Далее необходимо настроить Arduino IDE для работы с контроллерами на базе чипа ESP8266:<br>
 https://github.com/Gorgy70/Parakeet-8266/blob/master/ESP8266.docx
 <br>
+<br>
 <b>Модификация прошивки:</b><br>
 <br>
 Для корректной работы прибора в файле проекта Parakeet-8266.ino
