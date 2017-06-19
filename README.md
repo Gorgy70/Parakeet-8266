@@ -35,3 +35,14 @@ https://www.arduino.cc/en/Main/Software
 Далее необходимо настроить Arduino IDE для работы с контроллерами на базе чипа ESP8266:<br>
 https://github.com/Gorgy70/Parakeet-8266/blob/master/ESP8266.docx
 <br>
+<b>Модификация прошивки:</b><br>
+<br>
+Для корректной работы прибора в файле проекта Parakeet-8266.ino
+необходимо внести следующие изменения:<br>
+#define my_wifi_ssid         "ssid" - указать свою точку доступа WiFi<br>
+#define my_wifi_pwd          "password" - указать свой пароль для точки доступа WiFi<br>
+char transmitter_id[] = "ABCDE"; - указать код своего трансмиттера.<br>
+При желании можно изменить адрес облачного сервиса:<br>
+#define my_webservice_url    "http://parakeet.esen.ru/receiver.cgi"<br>
+и цифровой код для доступа к данным:<br>
+#define my_password_code     "12543"<br>
