@@ -24,6 +24,7 @@ extern "C" {
 #define NUM_CHANNELS (4)      // Кол-во проверяемых каналов
 #define FIVE_MINUTE  300000    // 5 минут
 #define THREE_MINUTE 180000    // 3 минуты
+#define TWO_MINUTE   120000    // 2 минуты
 
 #define RADIO_BUFFER_LEN 200 // Размер буфера для приема данных от GSM модема
 
@@ -100,6 +101,8 @@ typedef struct _parakeet_settings
   unsigned long dex_tx_id;     //4 bytes
   char http_url[56];
   char password_code[6];
+  char wifi_ssid[16];
+  char wifi_pwd[16];
   unsigned long checksum; // needs to be aligned
 
 } parakeet_settings;
@@ -190,6 +193,8 @@ void clearSettings()
   dex_tx_id = settings.dex_tx_id;
   sprintf(settings.http_url, my_webservice_url);
   sprintf(settings.password_code, my_password_code);
+  sprintf(settings.wifi_ssid, my_wifi_ssid);
+  sprintf(settings.wifi_pwd, my_wifi_pwd);
   settings.checksum = 0;
 }
 
@@ -486,7 +491,7 @@ void handleRoot() {
   char current_id[6];
   char temp[1400];
   dexcom_src_to_ascii(settings.dex_tx_id,current_id);
-  sprintf(temp,edit_form,current_id,settings.password_code,settings.http_url);
+  sprintf(temp,edit_form,current_id,settings.password_code,settings.http_url,settings.wifi_ssid,settings.wifi_pwd);
   server.send(200, "text/html", temp);
 }
 
@@ -507,10 +512,15 @@ void handleSave() {
   arg1.toCharArray(settings.password_code,6);
   arg1 = server.arg("WebService");
   arg1.toCharArray(settings.http_url,56);
+  arg1 = server.arg("WiFiSSID");
+  arg1.toCharArray(settings.wifi_ssid,16);
+  arg1 = server.arg("WiFiPwd");
+  arg1.toCharArray(settings.wifi_pwd,16);
   
   saveSettingsToFlash();
   
-  sprintf(temp, "Configuration saved!<br>DexcomID = %s<br>Password Code = %s<br>URL=%s<br>",new_id,settings.password_code,settings.http_url);
+  sprintf(temp, "Configuration saved!<br>DexcomID = %s<br>Password Code = %s<br>URL = %s<br>WiFi SSID = %s<br>WiFi Password = %s<br>",
+                new_id,settings.password_code,settings.http_url,settings.wifi_ssid,settings.wifi_pwd);
   server.send ( 200, "text/html",temp );
 //  server.send ( 200, "text/plain","Configuration saved!" );
 }
@@ -799,7 +809,7 @@ void print_packet() {
 #endif
     // wait for WiFi connection
   i = 0;  
-  WiFi.begin(my_wifi_ssid,my_wifi_pwd);
+  WiFi.begin(settings.wifi_ssid,settings.wifi_pwd);
 #ifdef DEBUG
     Serial.print("Connecting WiFi: ");
 #endif
@@ -910,7 +920,7 @@ void loop() {
 // Первые пять минут работает WebServer на адресе 192.168.70.1 для конфигурации устройства
   if (web_server_start_time > 0) {
     server.handleClient();
-    if ((millis() - web_server_start_time) > FIVE_MINUTE && !server.client()) {
+    if ((millis() - web_server_start_time) > TWO_MINUTE && !server.client()) {
       server.stop();
       WiFi.softAPdisconnect(true);
       web_server_start_time = 0;  

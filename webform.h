@@ -36,6 +36,22 @@ Parakeet-8266 Settings\
   </td>\
 </tr>\
 <tr>\
+  <td width=30%>\
+    WiFi SSID:\
+  </td>\
+  <td>\
+    <input type='text' name='WiFiSSID' maxlength='15' size='15' value=\"%s\">\
+  </td>\
+</tr>\
+<tr>\
+  <td width=30%>\
+    WiFi Password:\
+  </td>\
+  <td>\
+    <input type='text' name='WiFiPwd' maxlength='15' size='15' value=\"%s\">\
+  </td>\
+</tr>\
+<tr>\
   <td align=center>\
     <input type='submit' value='Save' />\
   </td>\
