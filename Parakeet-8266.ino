@@ -3,17 +3,20 @@
 //#define EXT_BLINK_LED
 
 #include <SPI.h>
-//#include <EEPROM.h>
+#include <EEPROM.h>
 #include <ESP8266WiFi.h>
 //#include <ESP8266WiFiMulti.h>
 
 #include <ESP8266HTTPClient.h>
+#include <ESP8266WebServer.h>
+
 
 extern "C" {
 #include "user_interface.h"
 }
 
 #include "cc2500_REG.h"
+#include "webform.h"
 
 #define GDO0_PIN D1            // Цифровой канал, к которму подключен контакт GD0 платы CC2500
 
@@ -36,6 +39,13 @@ extern "C" {
 
 unsigned long dex_tx_id;
 char transmitter_id[] = "6E853";
+
+IPAddress local_IP(192,168,70,1);
+IPAddress gateway(192,168,70,1);
+IPAddress subnet(255,255,255,0);
+
+ESP8266WebServer server(80);
+unsigned long web_server_start_time;
 
 unsigned long packet_received = 0;
 
@@ -63,6 +73,8 @@ volatile boolean wake_up_flag;
 // 1 (0001) - Нет модключения к WiFi
 // 2 (0010) - Облачная служба не отвечает
 // 3 (0011) - Облачная служба возвращает ошибку
+// 4 (0100) - Неверный CRC в сохраненных настройках. Берем настройки по умолчанию
+
 
 typedef struct _Dexcom_packet
 {
@@ -82,6 +94,17 @@ typedef struct _Dexcom_packet
 } Dexcom_packet;
 
 Dexcom_packet Pkt;
+
+typedef struct _parakeet_settings
+{
+  unsigned long dex_tx_id;     //4 bytes
+  char http_url[56];
+  char password_code[6];
+  unsigned long checksum; // needs to be aligned
+
+} parakeet_settings;
+
+parakeet_settings settings;
 
 char SrcNameTable[32] = { '0', '1', '2', '3', '4', '5', '6', '7',
                           '8', '9', 'A', 'B', 'C', 'D', 'E', 'F',
@@ -158,6 +181,73 @@ unsigned long dex_num_decoder (unsigned int usShortFloat)
     usExponent = ((usReversed & 0xE000) >> 13);
     usMantissa = (usReversed & 0x1FFF);
     return usMantissa << usExponent;
+}
+
+void clearSettings()
+{
+  memset (&settings, 0, sizeof (settings));
+  settings.dex_tx_id = asciiToDexcomSrc (transmitter_id);
+  dex_tx_id = settings.dex_tx_id;
+  sprintf(settings.http_url, my_webservice_url);
+  sprintf(settings.password_code, my_password_code);
+  settings.checksum = 0;
+}
+
+unsigned long checksum_settings()
+{
+  char* flash_pointer;
+  unsigned long chk = 0x12345678;
+  byte i;
+  //   flash_pointer = (char*)settings;
+  flash_pointer = (char*)&settings;
+  for (i = 0; i < sizeof(parakeet_settings) - 4; i++)
+  {
+    chk += (flash_pointer[i] * (i + 1));
+    chk++;
+  }
+  return chk;
+}
+
+void saveSettingsToFlash()
+{
+  char* flash_pointer;
+  byte i;
+
+  EEPROM.begin(sizeof(parakeet_settings));
+  
+  settings.checksum = checksum_settings();
+  flash_pointer = (char*)&settings;
+  for (i = 0; i < sizeof(parakeet_settings); i++)
+  {
+    EEPROM.write(i,flash_pointer[i]);
+  }
+  EEPROM.commit();
+//  EEPROM.put(0, settings);
+}
+
+void loadSettingsFromFlash()
+{
+  char* flash_pointer;
+  byte i;
+
+  EEPROM.begin(sizeof(parakeet_settings));
+  flash_pointer = (char*)&settings;
+  for (i = 0; i < sizeof(parakeet_settings); i++)
+  {
+    flash_pointer[i] = EEPROM.read(i);
+  }
+  
+//  EEPROM.get(0, settings);
+  dex_tx_id = settings.dex_tx_id;
+  if (settings.checksum != checksum_settings()) {
+    clearSettings();
+#ifdef INT_BLINK_LED
+    blink_sequence("0100");
+#endif
+#ifdef EXT_BLINK_LED
+    blink_sequence_red("0100");
+#endif
+  }
 }
 
 #ifdef EXT_BLINK_LED
@@ -392,6 +482,49 @@ char ReadStatus(char addr) {
   return y;
 }
 
+void handleRoot() {
+  char current_id[6];
+  char temp[1400];
+  dexcom_src_to_ascii(settings.dex_tx_id,current_id);
+  sprintf(temp,edit_form,current_id,settings.password_code,settings.http_url);
+  server.send(200, "text/html", temp);
+}
+
+void handleNotFound() {
+  server.send ( 404, "text/plain", "not found!" );
+}
+
+void handleSave() {
+  char new_id[6];
+  String arg1;
+  char temp[1400];
+
+  arg1 = server.arg("DexcomID");
+  arg1.toCharArray(new_id,6);
+  settings.dex_tx_id = asciiToDexcomSrc (new_id);
+  dex_tx_id = settings.dex_tx_id;
+  arg1 = server.arg("PasswordCode");
+  arg1.toCharArray(settings.password_code,6);
+  arg1 = server.arg("WebService");
+  arg1.toCharArray(settings.http_url,56);
+  
+  saveSettingsToFlash();
+  
+  sprintf(temp, "Configuration saved!<br>DexcomID = %s<br>Password Code = %s<br>URL=%s<br>",new_id,settings.password_code,settings.http_url);
+  server.send ( 200, "text/html",temp );
+//  server.send ( 200, "text/plain","Configuration saved!" );
+}
+
+void PrepareWebServer() {
+  WiFi.softAPConfig(local_IP, gateway, subnet);
+  WiFi.softAP("Parakeet");
+  server.on("/", handleRoot);
+  server.on("/save", handleSave);
+  server.onNotFound ( handleNotFound );
+  server.begin(); 
+  web_server_start_time = millis();   
+}
+
 void setup() {
 #ifdef DEBUG
   byte b1;
@@ -412,7 +545,7 @@ void setup() {
   pinMode(YELLOW_LED_PIN, OUTPUT);
 #endif
 
-  dex_tx_id = asciiToDexcomSrc (transmitter_id);
+  loadSettingsFromFlash();
 #ifdef DEBUG
   Serial.print("Dexcom ID: ");
   Serial.println(dex_tx_id);
@@ -431,6 +564,8 @@ void setup() {
   b1 = ReadStatus(VERSION);
   Serial.println(b1,HEX);
 #endif
+ PrepareWebServer();
+ 
  ESP.wdtDisable();
  ESP.wdtEnable(WDTO_8S);
 }
@@ -757,10 +892,13 @@ bool light_sleep(unsigned long time_ms) {
   wifi_fpm_set_wakeup_cb(my_wakeup_cb);
   wifi_fpm_do_sleep(time_ms*1000) ; 
 //  sleep_time = time_ms*960;
-  wifi_fpm_do_sleep(sleep_time) ; 
+//  wifi_fpm_do_sleep(sleep_time) ; 
+  delay(sleep_time);
+/*  
   while (!wake_up_flag) {
     delay(500);
   }
+*/  
   wifi_fpm_do_wakeup();
   wifi_fpm_close();
   wifi_set_opmode(STATION_MODE);         // set station mode
@@ -768,7 +906,19 @@ bool light_sleep(unsigned long time_ms) {
 
 void loop() {
   unsigned long current_time;
+
+// Первые пять минут работает WebServer на адресе 192.168.70.1 для конфигурации устройства
+  if (web_server_start_time > 0) {
+    server.handleClient();
+    if ((millis() - web_server_start_time) > FIVE_MINUTE && !server.client()) {
+      server.stop();
+      WiFi.softAPdisconnect(true);
+      web_server_start_time = 0;  
+    }
+    return;
+  }
   
+// После пяти минут ожидания ждем сигнал с декскома
   if (next_time != 0) {
 #ifdef DEBUG
     Serial.print("next tmime = ");
