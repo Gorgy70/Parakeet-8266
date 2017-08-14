@@ -891,8 +891,6 @@ void my_wakeup_cb() {
 }
 bool light_sleep(unsigned long time_ms) {
 
-  unsigned long sleep_time;
-  
   wake_up_flag = false;
   wifi_station_disconnect();
   wifi_set_opmode(NULL_MODE);  
@@ -903,7 +901,7 @@ bool light_sleep(unsigned long time_ms) {
   wifi_fpm_do_sleep(time_ms*1000) ; 
 //  sleep_time = time_ms*960;
 //  wifi_fpm_do_sleep(sleep_time) ; 
-  delay(sleep_time);
+  delay(time_ms);
 /*  
   while (!wake_up_flag) {
     delay(500);
