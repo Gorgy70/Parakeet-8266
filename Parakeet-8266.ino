@@ -1,6 +1,7 @@
 //#define DEBUG
 #define INT_BLINK_LED
 //#define EXT_BLINK_LED
+#define BLUETOOTH
 
 #include <SPI.h>
 #include <EEPROM.h>
@@ -9,6 +10,9 @@
 
 #include <ESP8266HTTPClient.h>
 #include <ESP8266WebServer.h>
+#ifdef BLUETOOTH
+  #include <SoftwareSerial.h>
+#endif
 
 
 extern "C" {
@@ -19,6 +23,11 @@ extern "C" {
 #include "webform.h"
 
 #define GDO0_PIN D1            // Цифровой канал, к которму подключен контакт GD0 платы CC2500
+
+#ifdef BLUETOOTH
+  #define TX_PIN   D3            // Tx контакт для последовательного порта
+  #define RX_PIN   D4            // Rx контакт для последовательного порта
+#endif
 
 
 #define NUM_CHANNELS (4)      // Кол-во проверяемых каналов
@@ -47,6 +56,10 @@ IPAddress subnet(255,255,255,0);
 
 ESP8266WebServer server(80);
 unsigned long web_server_start_time;
+
+#ifdef BLUETOOTH
+  SoftwareSerial mySerial(RX_PIN, TX_PIN,false, 256); // RX, TX
+#endif
 
 unsigned long packet_received = 0;
 
@@ -535,6 +548,72 @@ void PrepareWebServer() {
   web_server_start_time = millis();   
 }
 
+#ifdef BLUETOOTH
+boolean bt_command(const char *command, String response, int timeout) {
+  boolean ret;
+  unsigned long timeout_time; 
+  int len_cmd = strlen (command);
+  byte i;
+  String bt_buffer = "";
+  char ch;
+
+
+  if (response == "") {
+    ret = true;
+  } 
+  else {
+    ret = false;
+  }  
+
+  for (i = 0; i < len_cmd; i++) {
+    mySerial.write(command[i]);
+  }
+  timeout_time = timeout;
+  timeout_time = millis() + (timeout_time * 1000);
+  while (millis() < timeout_time)
+  {
+    if (mySerial.available()) {
+      delayMicroseconds(100);
+      ch = mySerial.read();
+      bt_buffer = bt_buffer + ch;
+      if (bt_buffer.indexOf(response) >= 0) {
+        ret = true;
+        delay(100);
+      }  
+    } 
+    else {
+      if (ret) {
+        delayMicroseconds(100);
+        break;
+      }
+    }
+  }
+#ifdef DEBUG
+  Serial.print("Cmd=");
+  Serial.println(command);
+  Serial.print("Exp.rep=");
+  Serial.println(response);
+  Serial.print("Resp=");
+  Serial.println(bt_buffer);
+  Serial.print("Res=");
+  Serial.println(ret);
+#endif
+
+  return ret;
+}
+
+void PrepareBlueTooth() {
+
+   mySerial.begin(9600);
+   delay(500);
+   bt_command("AT","OK",2);
+   delay(500);
+   bt_command("AT+NAMExDrip","OK",2);
+   delay(500);
+   bt_command("AT+RESET","OK",2);
+}
+#endif
+
 void setup() {
 #ifdef DEBUG
   byte b1;
@@ -575,9 +654,15 @@ void setup() {
   Serial.println(b1,HEX);
 #endif
  PrepareWebServer();
+#ifdef BLUETOOTH
+  PrepareBlueTooth();
+#endif
  
  ESP.wdtDisable();
  ESP.wdtEnable(WDTO_8S);
+#ifdef DEBUG
+ Serial.println("Wait two minutes or configure device!");
+#endif
 }
 
 void swap_channel(unsigned long channel, byte newFSCTRL0) {
@@ -883,6 +968,20 @@ void print_packet() {
 #endif
 }
 
+#ifdef BLUETOOTH
+void print_bt_packet() {
+//  sprintf(dex_data,"%lu %d %d",275584,battery,3900);
+#ifdef INT_BLINK_LED    
+  digitalWrite(LED_BUILTIN, LOW);
+#endif
+  sprintf(radio_buff,"%lu %d",dex_num_decoder(Pkt.raw),Pkt.battery);
+  bt_command(radio_buff,"OK",2);
+#ifdef INT_BLINK_LED    
+  digitalWrite(LED_BUILTIN, HIGH);
+#endif
+}
+#endif
+
 void my_wakeup_cb() {
   wake_up_flag = true;
 #ifdef DEBUG
@@ -915,13 +1014,16 @@ bool light_sleep(unsigned long time_ms) {
 void loop() {
   unsigned long current_time;
 
-// Первые пять минут работает WebServer на адресе 192.168.70.1 для конфигурации устройства
+// Первые две минуты работает WebServer на адресе 192.168.70.1 для конфигурации устройства
   if (web_server_start_time > 0) {
     server.handleClient();
     if ((millis() - web_server_start_time) > TWO_MINUTE && !server.client()) {
       server.stop();
       WiFi.softAPdisconnect(true);
       web_server_start_time = 0;  
+#ifdef DEBUG
+      Serial.println("Configuration mode is done!");
+#endif
     }
     return;
   }
@@ -970,6 +1072,9 @@ void loop() {
   }
   if (get_packet ())
   {
+#ifdef BLUETOOTH
+    print_bt_packet();
+#endif
     print_packet ();
   }
 
