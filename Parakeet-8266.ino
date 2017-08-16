@@ -1,4 +1,4 @@
-//#define DEBUG
+#define DEBUG
 #define INT_BLINK_LED
 //#define EXT_BLINK_LED
 #define BLUETOOTH
@@ -22,7 +22,8 @@ extern "C" {
 #include "cc2500_REG.h"
 #include "webform.h"
 
-#define GDO0_PIN D1            // Цифровой канал, к которму подключен контакт GD0 платы CC2500
+#define GDO0_PIN   D1            // Цифровой канал, к которму подключен контакт GD0 платы CC2500
+#define LEN_PIN    D2            // Цифровой канал, к которму подключен контакт LEN (усилитель слабого сигнала) платы CC2500
 
 #ifdef BLUETOOTH
   #define TX_PIN   D3            // Tx контакт для последовательного порта
@@ -625,6 +626,8 @@ void setup() {
     ; // wait for serial port to connect. Needed for native USB port only
   }
 #endif
+  pinMode(LEN_PIN, OUTPUT);
+  pinMode(GDO0_PIN, INPUT);
   // initialize digital pin LED_BUILTIN as an output.
 #ifdef INT_BLINK_LED
   pinMode(LED_BUILTIN, OUTPUT);
@@ -755,6 +758,7 @@ boolean WaitForPacket(unsigned int milliseconds_wait, byte channel_index)
   Serial.println(next_time);
 #endif
   current_time = 0;
+  digitalWrite(LEN_PIN, HIGH); // Включаем усилитель слабого сигнала
   while (true) {
     ESP.wdtFeed();
     current_time = millis();
@@ -805,6 +809,7 @@ boolean WaitForPacket(unsigned int milliseconds_wait, byte channel_index)
       }
     }
   }
+  digitalWrite(LEN_PIN, LOW); // Выключаем усилитель слабого сигнала
 
 #ifdef INT_BLINK_LED
   digitalWrite(LED_BUILTIN, HIGH);
