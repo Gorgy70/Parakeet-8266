@@ -1,4 +1,4 @@
-#define DEBUG
+//#define DEBUG
 #define INT_BLINK_LED
 //#define EXT_BLINK_LED
 #define BLUETOOTH
@@ -80,9 +80,13 @@ byte misses_until_failure = 2;                                                  
 // a value of zero is best if you dont care at all about battery life                               //
 
 byte wifi_wait_tyme = 100; // Время ожидания соединения WiFi в секундах
+byte default_bt_format = 0; // Формат обмена по протколу BlueTooth 0 - None 1 - xDrip, 2 - xBridge
 
 char radio_buff[RADIO_BUFFER_LEN]; // Буффер для чтения данных и прочих нужд
 volatile boolean wake_up_flag;
+
+// defines the xBridge protocol functional level.  Sent in each packet as the last byte.
+#define DEXBRIDGE_PROTO_LEVEL (0x01)
 
 // Коды ошибок мигают лампочкой в двоичной системе
 // 1 (0001) - Нет модключения к WiFi
@@ -110,13 +114,28 @@ typedef struct _Dexcom_packet
 
 Dexcom_packet Pkt;
 
+typedef struct _RawRecord
+{
+  uint8 size; //size of the packet.
+  uint8 cmd_code; // code for this data packet.  Always 00 for a Dexcom data packet.
+  uint32  raw;  //"raw" BGL value.
+  uint32  filtered; //"filtered" BGL value 
+  uint8 dex_battery;  //battery value
+  uint8 my_battery; //xBridge battery value
+  uint32  dex_src_id;   //raw TXID of the Dexcom Transmitter
+  //int8  RSSI; //RSSI level of the transmitter, used to determine if it is in range.
+  //uint8 txid; //ID of this transmission.  Essentially a sequence from 0-63
+  uint8 function; // Byte representing the xBridge code funcitonality.  01 = this level.
+} RawRecord;
+
 typedef struct _parakeet_settings
 {
   unsigned long dex_tx_id;     //4 bytes
   char http_url[56];
   char password_code[6];
-  char wifi_ssid[16];
-  char wifi_pwd[16];
+  char wifi_ssid[17];
+  char wifi_pwd[18];
+  byte bt_format;
   unsigned long checksum; // needs to be aligned
 
 } parakeet_settings;
@@ -209,6 +228,7 @@ void clearSettings()
   sprintf(settings.password_code, my_password_code);
   sprintf(settings.wifi_ssid, my_wifi_ssid);
   sprintf(settings.wifi_pwd, my_wifi_pwd);
+  settings.bt_format = default_bt_format;
   settings.checksum = 0;
 }
 
@@ -504,8 +524,33 @@ char ReadStatus(char addr) {
 void handleRoot() {
   char current_id[6];
   char temp[1400];
+  char chk1[8];
+  char chk2[8];
+  char chk3[8];
   dexcom_src_to_ascii(settings.dex_tx_id,current_id);
-  sprintf(temp,edit_form,current_id,settings.password_code,settings.http_url,settings.wifi_ssid,settings.wifi_pwd);
+  switch (settings.bt_format) {
+    case 0:
+      sprintf(chk1,"%s","checked");
+      chk2[0] = '\0';
+      chk3[0] = '\0';
+      break;
+    case 1:
+      chk1[0] = '\0';
+      sprintf(chk2,"%s","checked");
+      chk3[0] = '\0';
+      break;
+    case 2:
+      chk1[0] = '\0';
+      chk2[0] = '\0';
+      sprintf(chk3,"%s","checked");
+      break;
+    default:  
+      chk1[0] = '\0';
+      chk2[0] = '\0';
+      chk3[0] = '\0';
+      break;
+  } 
+  sprintf(temp,edit_form,current_id,settings.password_code,settings.http_url,settings.wifi_ssid,settings.wifi_pwd,chk1,chk2,chk2);
   server.send(200, "text/html", temp);
 }
 
@@ -514,9 +559,10 @@ void handleNotFound() {
 }
 
 void handleSave() {
-  char new_id[6];
+  char new_id[6]; 
   String arg1;
   char temp[1400];
+  char bt_frmt[8];
 
   arg1 = server.arg("DexcomID");
   arg1.toCharArray(new_id,6);
@@ -530,13 +576,27 @@ void handleSave() {
   arg1.toCharArray(settings.wifi_ssid,16);
   arg1 = server.arg("WiFiPwd");
   arg1.toCharArray(settings.wifi_pwd,16);
-  
+  arg1 = server.arg("BtFormat");
+  if (arg1 == "0") {
+    settings.bt_format = 0;
+    sprintf(bt_frmt,"%s","None");
+  }
+  else if (arg1 == "1") {   
+    settings.bt_format = 1;
+    sprintf(bt_frmt,"%s","xDrip");
+  } else if (arg1 == "2") {    
+    settings.bt_format = 2;
+    sprintf(bt_frmt,"%s","xBridge");
+  }
   saveSettingsToFlash();
   
-  sprintf(temp, "Configuration saved!<br>DexcomID = %s<br>Password Code = %s<br>URL = %s<br>WiFi SSID = %s<br>WiFi Password = %s<br>",
-                new_id,settings.password_code,settings.http_url,settings.wifi_ssid,settings.wifi_pwd);
+  sprintf(temp, "Configuration saved!<br>DexcomID = %s<br>Password Code = %s<br>URL = %s<br>WiFi SSID = %s<br>WiFi Password = %s<br> BlueTooth format: %s<br>",
+                new_id,settings.password_code,settings.http_url,settings.wifi_ssid,settings.wifi_pwd,bt_frmt);
   server.send ( 200, "text/html",temp );
 //  server.send ( 200, "text/plain","Configuration saved!" );
+#ifdef DEBUG
+  Serial.println("Configuration saved!");
+#endif      
 }
 
 void PrepareWebServer() {
@@ -600,6 +660,19 @@ boolean bt_command(const char *command, String response, int timeout) {
   Serial.println(ret);
 #endif
 
+  if (settings.bt_format == 2 && bt_buffer.length() > 0) {
+    if (bt_buffer.charAt(0)== 0x06 && bt_buffer.charAt(1) == 0x01) {
+#ifdef DEBUG
+      Serial.println("Processing TXID packet");
+#endif      
+    }
+    if (bt_buffer.charAt(0)== 0x02 && bt_buffer.charAt(1) == 0xF0) {
+#ifdef DEBUG
+      Serial.println("Processing ACK packet");
+#endif      
+      ret = true;
+    }
+  }
   return ret;
 }
 
@@ -894,6 +967,13 @@ void print_packet() {
   Serial.print(Pkt.LQI2, HEX);
   Serial.println(" OK");
 #endif
+
+  if (strlen(settings.wifi_ssid) == 0) {
+#ifdef DEBUG
+    Serial.println("WiFi not configred!");
+#endif
+    return;
+  }
 #ifdef INT_BLINK_LED    
   digitalWrite(LED_BUILTIN, LOW);
 #endif
@@ -975,11 +1055,32 @@ void print_packet() {
 
 #ifdef BLUETOOTH
 void print_bt_packet() {
+  RawRecord msg;  
+
+  if (settings.bt_format == 0) {
+    return;
+  }
 //  sprintf(dex_data,"%lu %d %d",275584,battery,3900);
 #ifdef INT_BLINK_LED    
   digitalWrite(LED_BUILTIN, LOW);
 #endif
-  sprintf(radio_buff,"%lu %d",dex_num_decoder(Pkt.raw),Pkt.battery);
+  radio_buff[0] = '\0';
+  if (settings.bt_format == 1) {
+    sprintf(radio_buff,"%lu %d",dex_num_decoder(Pkt.raw),Pkt.battery);
+  }  
+  else if (settings.bt_format == 2) { 
+    msg.cmd_code = 0x00;
+    msg.raw = dex_num_decoder(Pkt.raw);
+    msg.filtered = dex_num_decoder(Pkt.filtered)*2;
+    msg.dex_battery = Pkt.battery;
+//    msg.my_battery = battery_capacity;
+    msg.my_battery = 0;
+    msg.dex_src_id = Pkt.src_addr;
+    msg.size = sizeof(msg);
+    msg.function = DEXBRIDGE_PROTO_LEVEL; // basic functionality, data packet (with ack), TXID packet, beacon packet (also TXID ack).
+    memcpy(&radio_buff, &msg, sizeof(msg));
+    radio_buff[sizeof(msg)] = '\0';
+  }
   bt_command(radio_buff,"OK",2);
 #ifdef INT_BLINK_LED    
   digitalWrite(LED_BUILTIN, HIGH);
