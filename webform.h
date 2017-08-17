@@ -52,6 +52,16 @@ Parakeet-8266 Settings\
   </td>\
 </tr>\
 <tr>\
+  <td width=30%>\
+    BlueTooth Format:\
+  </td>\
+  <td>\
+    <input type='radio' name='BtFormat' value='0' %s>None\
+    <input type='radio' name='BtFormat' value='1' %s>xDrip\
+    <input type='radio' name='BtFormat' value='2' %s>xBridge\
+  </td>\
+</tr>\
+<tr>\
   <td align=center>\
     <input type='submit' value='Save' />\
   </td>\
