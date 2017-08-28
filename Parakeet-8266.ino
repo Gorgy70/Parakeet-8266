@@ -1,4 +1,4 @@
-//#define DEBUG
+#define DEBUG
 #define INT_BLINK_LED
 //#define EXT_BLINK_LED
 #define BLUETOOTH
@@ -37,6 +37,7 @@ extern "C" {
 #define TWO_MINUTE   120000    // 2 минуты
 
 #define RADIO_BUFFER_LEN 200 // Размер буфера для приема данных от GSM модема
+#define SERIAL_BUFFER_LEN 100 // Размер буфера для приема данных от порта BT
 
 #define my_webservice_url    "http://parakeet.esen.ru/receiver.cgi"
 #define my_webservice_reply  "!ACK"
@@ -83,6 +84,7 @@ byte wifi_wait_tyme = 100; // Время ожидания соединения W
 byte default_bt_format = 0; // Формат обмена по протколу BlueTooth 0 - None 1 - xDrip, 2 - xBridge
 
 char radio_buff[RADIO_BUFFER_LEN]; // Буффер для чтения данных и прочих нужд
+char serial_buff[SERIAL_BUFFER_LEN]; // Буффер для чтения данных и прочих нужд
 volatile boolean wake_up_flag;
 
 // defines the xBridge protocol functional level.  Sent in each packet as the last byte.
@@ -116,16 +118,16 @@ Dexcom_packet Pkt;
 
 typedef struct _RawRecord
 {
-  uint8 size; //size of the packet.
-  uint8 cmd_code; // code for this data packet.  Always 00 for a Dexcom data packet.
-  uint32  raw;  //"raw" BGL value.
-  uint32  filtered; //"filtered" BGL value 
-  uint8 dex_battery;  //battery value
-  uint8 my_battery; //xBridge battery value
-  uint32  dex_src_id;   //raw TXID of the Dexcom Transmitter
+  byte size; //size of the packet.
+  byte cmd_code; // code for this data packet.  Always 00 for a Dexcom data packet.
+  unsigned long  raw;  //"raw" BGL value.
+  unsigned long  filtered; //"filtered" BGL value 
+  byte dex_battery;  //battery value
+  byte my_battery; //xBridge battery value
+  unsigned long  dex_src_id;   //raw TXID of the Dexcom Transmitter
   //int8  RSSI; //RSSI level of the transmitter, used to determine if it is in range.
   //uint8 txid; //ID of this transmission.  Essentially a sequence from 0-63
-  uint8 function; // Byte representing the xBridge code funcitonality.  01 = this level.
+  byte function; // Byte representing the xBridge code funcitonality.  01 = this level.
 } RawRecord;
 
 typedef struct _parakeet_settings
@@ -611,10 +613,14 @@ void PrepareWebServer() {
 
 #ifdef BLUETOOTH
 boolean bt_command(const char *command, const char *response, int timeout) {
+  return bt_command(command,strlen(command),response,timeout);
+}
+
+boolean bt_command(const char *command, byte len, const char *response, int timeout) {
   boolean ret;
   unsigned long timeout_time; 
   int len_cmd = strlen (command);
-  int len_resp = strlen (command);
+  int len_resp = strlen (response);
   int loop = 0;
   byte i;
 
@@ -626,22 +632,33 @@ boolean bt_command(const char *command, const char *response, int timeout) {
     ret = false;
   }  
 
-  memset (&radio_buff[0],0,sizeof(radio_buff));
+  memset (&serial_buff[0],0,sizeof(serial_buff));
 
+  if (len > 0) {
+    len_cmd = len;
+  }
   for (i = 0; i < len_cmd; i++) {
     mySerial.write(command[i]);
+#ifdef DEBUG
+    Serial.print(command[i],HEX);
+#endif
   }
+#ifdef DEBUG
+  Serial.println();
+#endif
   timeout_time = timeout;
   timeout_time = millis() + (timeout_time * 1000);
   while (millis() < timeout_time)
   {
+    ESP.wdtFeed();
     if (mySerial.available()) {
       delayMicroseconds(100);
-      radio_buff[loop] = mySerial.read();
+      serial_buff[loop] = mySerial.read();
       loop++;
-      if (loop == RADIO_BUFFER_LEN) loop = 0; // Контролируем переполнение буфера
+      if (loop == SERIAL_BUFFER_LEN) loop = 0; // Контролируем переполнение буфера
       if (loop >= len_resp) {
-        if (strncmp(response,&radio_buff[loop-len_resp],len_resp) == 0) {
+        if (strncmp(response,&serial_buff[loop-len_resp],len_resp) == 0) {
+//        if (memcmp(response,&serial_buff[loop-len_resp],len_resp) == 0) {
           ret = true;
           delay(100);
         }
@@ -657,10 +674,14 @@ boolean bt_command(const char *command, const char *response, int timeout) {
 #ifdef DEBUG
   Serial.print("Cmd = ");
   Serial.println(command);
+  Serial.print("Cmd Len = ");
+  Serial.println(len_cmd);
   Serial.print("Exp.resp = ");
   Serial.println(response);
+  Serial.print("Exp.resp Len = ");
+  Serial.println(len_resp);
   Serial.print("Resp = ");
-  Serial.println(SerialBuffer);
+  Serial.println(serial_buff);
   Serial.print("Res = ");
   Serial.println(ret);
 #endif
@@ -686,12 +707,12 @@ void sendBeacon()
   //char array to store the response in.
   char cmd_response[8];
   //return if we don't have a connection or if we have already sent a beacon
-  cmd_response[0] = sizeof(cmd_response);
+  cmd_response[0] = 0x07;
   cmd_response[1] = 0xF1;
   memcpy(&cmd_response[2], &settings.dex_tx_id, sizeof(settings.dex_tx_id));
   cmd_response[6] = DEXBRIDGE_PROTO_LEVEL;
   cmd_response[7] = '\0';
-  bt_command(cmd_response,"OK",2);
+  bt_command(cmd_response,7,"OK",2);
 }
 
 void PrepareBlueTooth() {
@@ -700,11 +721,9 @@ void PrepareBlueTooth() {
    delay(500);
    bt_command("AT","OK",2);
    delay(500);
-   bt_command("AT+NAMExDrip","OK",2);
+   bt_command("AT+NAMExDrip","Set:",2);
    delay(500);
-   bt_command("AT+RESET","OK",2);
-   delay(1000);
-   sendBeacon();
+   bt_command("AT+RESET","RESET",2);
 }
 #endif
 
@@ -749,15 +768,15 @@ void setup() {
   b1 = ReadStatus(VERSION);
   Serial.println(b1,HEX);
 #endif
- PrepareWebServer();
+  PrepareWebServer();
+ 
+  ESP.wdtDisable();
+  ESP.wdtEnable(WDTO_8S);
 #ifdef BLUETOOTH
   PrepareBlueTooth();
 #endif
- 
- ESP.wdtDisable();
- ESP.wdtEnable(WDTO_8S);
 #ifdef DEBUG
- Serial.println("Wait two minutes or configure device!");
+  Serial.println("Wait two minutes or configure device!");
 #endif
 }
 
@@ -1084,9 +1103,9 @@ void print_bt_packet() {
 #ifdef INT_BLINK_LED    
   digitalWrite(LED_BUILTIN, LOW);
 #endif
-  radio_buff[0] = '\0';
   if (settings.bt_format == 1) {
     sprintf(radio_buff,"%lu %d",dex_num_decoder(Pkt.raw),Pkt.battery);
+    bt_command(radio_buff,0,"OK",2);
   }  
   else if (settings.bt_format == 2) { 
     msg.cmd_code = 0x00;
@@ -1096,12 +1115,22 @@ void print_bt_packet() {
 //    msg.my_battery = battery_capacity;
     msg.my_battery = 0;
     msg.dex_src_id = Pkt.src_addr;
-    msg.size = sizeof(msg);
+//    msg.size = sizeof(msg);
+    msg.size = 17;
     msg.function = DEXBRIDGE_PROTO_LEVEL; // basic functionality, data packet (with ack), TXID packet, beacon packet (also TXID ack).
-    memcpy(&radio_buff, &msg, sizeof(msg));
+//    memcpy(&radio_buff, &msg, sizeof(msg));
+
+    radio_buff[0] = msg.size;
+    radio_buff[1] = msg.cmd_code;
+    memcpy(&radio_buff[2],&msg.raw , 4);
+    memcpy(&radio_buff[6],&msg.filtered , 4);
+    radio_buff[10] = msg.dex_battery;
+    radio_buff[11] = msg.my_battery;
+    memcpy(&radio_buff[12],&msg.dex_src_id , 4);
+    radio_buff[16] = msg.function;
     radio_buff[sizeof(msg)] = '\0';
+    bt_command(radio_buff,msg.size,"OK",2);
   }
-  bt_command(radio_buff,"OK",2);
 #ifdef INT_BLINK_LED    
   digitalWrite(LED_BUILTIN, HIGH);
 #endif
@@ -1149,6 +1178,11 @@ void loop() {
       web_server_start_time = 0;  
 #ifdef DEBUG
       Serial.println("Configuration mode is done!");
+#endif
+#ifdef BLUETOOTH
+      if (settings.bt_format == 2) {
+        sendBeacon();
+      }   
 #endif
     }
     return;
