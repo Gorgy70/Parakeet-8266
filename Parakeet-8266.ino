@@ -550,7 +550,7 @@ void handleRoot() {
       chk3[0] = '\0';
       break;
   } 
-  sprintf(temp,edit_form,current_id,settings.password_code,settings.http_url,settings.wifi_ssid,settings.wifi_pwd,chk1,chk2,chk2);
+  sprintf(temp,edit_form,current_id,settings.password_code,settings.http_url,settings.wifi_ssid,settings.wifi_pwd,chk1,chk2,chk3);
   server.send(200, "text/html", temp);
 }
 
@@ -610,13 +610,13 @@ void PrepareWebServer() {
 }
 
 #ifdef BLUETOOTH
-boolean bt_command(const char *command, String response, int timeout) {
+boolean bt_command(const char *command, const char *response, int timeout) {
   boolean ret;
   unsigned long timeout_time; 
   int len_cmd = strlen (command);
+  int len_resp = strlen (command);
+  int loop = 0;
   byte i;
-  String bt_buffer = "";
-  char ch;
 
 
   if (response == "") {
@@ -625,6 +625,8 @@ boolean bt_command(const char *command, String response, int timeout) {
   else {
     ret = false;
   }  
+
+  memset (&radio_buff[0],0,sizeof(radio_buff));
 
   for (i = 0; i < len_cmd; i++) {
     mySerial.write(command[i]);
@@ -635,11 +637,14 @@ boolean bt_command(const char *command, String response, int timeout) {
   {
     if (mySerial.available()) {
       delayMicroseconds(100);
-      ch = mySerial.read();
-      bt_buffer = bt_buffer + ch;
-      if (bt_buffer.indexOf(response) >= 0) {
-        ret = true;
-        delay(100);
+      radio_buff[loop] = mySerial.read();
+      loop++;
+      if (loop == RADIO_BUFFER_LEN) loop = 0; // Контролируем переполнение буфера
+      if (loop >= len_resp) {
+        if (strncmp(response,&radio_buff[loop-len_resp],len_resp) == 0) {
+          ret = true;
+          delay(100);
+        }
       }  
     } 
     else {
@@ -650,23 +655,23 @@ boolean bt_command(const char *command, String response, int timeout) {
     }
   }
 #ifdef DEBUG
-  Serial.print("Cmd=");
+  Serial.print("Cmd = ");
   Serial.println(command);
-  Serial.print("Exp.rep=");
+  Serial.print("Exp.resp = ");
   Serial.println(response);
-  Serial.print("Resp=");
-  Serial.println(bt_buffer);
-  Serial.print("Res=");
+  Serial.print("Resp = ");
+  Serial.println(SerialBuffer);
+  Serial.print("Res = ");
   Serial.println(ret);
 #endif
 
-  if (settings.bt_format == 2 && bt_buffer.length() > 0) {
-    if (bt_buffer.charAt(0)== 0x06 && bt_buffer.charAt(1) == 0x01) {
+  if (settings.bt_format == 2 && strlen(radio_buff) > 0) {
+    if (radio_buff[0]== 0x06 && radio_buff[1] == 0x01) {
 #ifdef DEBUG
       Serial.println("Processing TXID packet");
 #endif      
     }
-    if (bt_buffer.charAt(0)== 0x02 && bt_buffer.charAt(1) == 0xF0) {
+    if (radio_buff[0]== 0x02 && radio_buff[1] == 0xF0) {
 #ifdef DEBUG
       Serial.println("Processing ACK packet");
 #endif      
@@ -674,6 +679,19 @@ boolean bt_command(const char *command, String response, int timeout) {
     }
   }
   return ret;
+}
+
+void sendBeacon()
+{
+  //char array to store the response in.
+  char cmd_response[8];
+  //return if we don't have a connection or if we have already sent a beacon
+  cmd_response[0] = sizeof(cmd_response);
+  cmd_response[1] = 0xF1;
+  memcpy(&cmd_response[2], &settings.dex_tx_id, sizeof(settings.dex_tx_id));
+  cmd_response[6] = DEXBRIDGE_PROTO_LEVEL;
+  cmd_response[7] = '\0';
+  bt_command(cmd_response,"OK",2);
 }
 
 void PrepareBlueTooth() {
@@ -685,6 +703,8 @@ void PrepareBlueTooth() {
    bt_command("AT+NAMExDrip","OK",2);
    delay(500);
    bt_command("AT+RESET","OK",2);
+   delay(1000);
+   sendBeacon();
 }
 #endif
 
