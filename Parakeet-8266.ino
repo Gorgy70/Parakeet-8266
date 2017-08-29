@@ -82,6 +82,7 @@ byte misses_until_failure = 2;                                                  
 
 byte wifi_wait_tyme = 100; // Время ожидания соединения WiFi в секундах
 byte default_bt_format = 0; // Формат обмена по протколу BlueTooth 0 - None 1 - xDrip, 2 - xBridge
+byte old_bt_format;
 
 char radio_buff[RADIO_BUFFER_LEN]; // Буффер для чтения данных и прочих нужд
 char serial_buff[SERIAL_BUFFER_LEN]; // Буффер для чтения данных и прочих нужд
@@ -717,11 +718,17 @@ void sendBeacon()
 
 void PrepareBlueTooth() {
 
+   if (settings.bt_format == 0) return;
    mySerial.begin(9600);
    delay(500);
    bt_command("AT","OK",2);
    delay(500);
-   bt_command("AT+NAMExDrip","Set:",2);
+   if (settings.bt_format == 1) {
+     bt_command("AT+NAMExDrip","Set:",2);
+   } 
+   else if (settings.bt_format == 2) {   
+     bt_command("AT+NAMExBridge","Set:",2);
+   }
    delay(500);
    bt_command("AT+RESET","RESET",2);
 }
@@ -774,6 +781,7 @@ void setup() {
   ESP.wdtEnable(WDTO_8S);
 #ifdef BLUETOOTH
   PrepareBlueTooth();
+  old_bt_format = settings.bt_format;
 #endif
 #ifdef DEBUG
   Serial.println("Wait two minutes or configure device!");
@@ -1180,6 +1188,10 @@ void loop() {
       Serial.println("Configuration mode is done!");
 #endif
 #ifdef BLUETOOTH
+      if (old_bt_format != settings.bt_format) {
+        PrepareBlueTooth();
+        delay(500);
+      }
       if (settings.bt_format == 2) {
         sendBeacon();
       }   
