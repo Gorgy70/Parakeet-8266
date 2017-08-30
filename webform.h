@@ -5,14 +5,14 @@ Parakeet-8266 Settings\
 </title>\
 <body> \
 <form action='save' method='POST'>\
-<table  border='0' cellpadding='2' cellspacing='2' style='border-collapse: collapse' width='100%'>\
+<table  border='0' cellpadding='2' cellspacing='2' style='border-collapse: collapse' width='100%%'>\
 <tr>\
   <td align=center>\
     Parakeet-8266 Settings\
   </td>\
 </tr>\
 <tr>\
-  <td width=30%>\
+  <td width=30%%>\
     Transmitter ID:\
   </td>\
   <td align=left>\
@@ -20,7 +20,7 @@ Parakeet-8266 Settings\
   </td>\
 </tr>\
 <tr>\
-  <td width=30%>\
+  <td width=30%%>\
     Password Code:\
   </td>\
   <td>\
@@ -28,7 +28,7 @@ Parakeet-8266 Settings\
   </td>\
 </tr>\
 <tr>\
-  <td width=30%>\
+  <td width=30%%>\
     Webservice URL:\
   </td>\
   <td>\
@@ -36,7 +36,7 @@ Parakeet-8266 Settings\
   </td>\
 </tr>\
 <tr>\
-  <td width=30%>\
+  <td width=30%%>\
     WiFi SSID:\
   </td>\
   <td>\
@@ -44,7 +44,7 @@ Parakeet-8266 Settings\
   </td>\
 </tr>\
 <tr>\
-  <td width=30%>\
+  <td width=30%%>\
     WiFi Password:\
   </td>\
   <td>\
@@ -52,7 +52,7 @@ Parakeet-8266 Settings\
   </td>\
 </tr>\
 <tr>\
-  <td width=30%>\
+  <td width=30%%>\
     BlueTooth Format:\
   </td>\
   <td>\
