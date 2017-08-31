@@ -24,6 +24,7 @@ extern "C" {
 
 #define GDO0_PIN   D1            // Цифровой канал, к которму подключен контакт GD0 платы CC2500
 #define LEN_PIN    D2            // Цифровой канал, к которму подключен контакт LEN (усилитель слабого сигнала) платы CC2500
+#define BAT_PIN    A0            // Аналоговый канал для измерения напряжения питания
 
 #ifdef BLUETOOTH
   #define TX_PIN   D3            // Tx контакт для последовательного порта
@@ -38,6 +39,10 @@ extern "C" {
 
 #define RADIO_BUFFER_LEN 200 // Размер буфера для приема данных от GSM модема
 #define SERIAL_BUFFER_LEN 100 // Размер буфера для приема данных от порта BT
+
+// assuming that there is a 27k ohm resistor between BAT+ and BAT_PIN, and a 10k ohm resistor between BAT_PIN and GND, as per xBridge circuit diagrams
+#define BATTERY_MAXIMUM   973 //4.2V 1023*4.2*27(27+10)/3.3
+#define BATTERY_MINIMUM   678 //3.0V 1023*3.0*27(27+10)/3.3
 
 #define my_webservice_url    "http://parakeet.esen.ru/receiver.cgi"
 #define my_webservice_reply  "!ACK"
@@ -83,6 +88,8 @@ byte misses_until_failure = 2;                                                  
 byte wifi_wait_tyme = 100; // Время ожидания соединения WiFi в секундах
 byte default_bt_format = 0; // Формат обмена по протколу BlueTooth 0 - None 1 - xDrip, 2 - xBridge
 byte old_bt_format;
+unsigned int battery_milivolts;
+int battery_percent;
 
 char radio_buff[RADIO_BUFFER_LEN]; // Буффер для чтения данных и прочих нужд
 char serial_buff[SERIAL_BUFFER_LEN]; // Буффер для чтения данных и прочих нужд
@@ -747,6 +754,9 @@ void setup() {
 #endif
   pinMode(LEN_PIN, OUTPUT);
   pinMode(GDO0_PIN, INPUT);
+  pinMode(BAT_PIN, INPUT);
+  analogReference(DEFAULT); 
+  
   // initialize digital pin LED_BUILTIN as an output.
 #ifdef INT_BLINK_LED
   pinMode(LED_BUILTIN, OUTPUT);
@@ -977,6 +987,24 @@ boolean get_packet (void) {
   return nRet;
 }
 
+void mesure_battery() {
+  unsigned int val;
+
+  val = analogRead(BAT_PIN);
+  battery_milivolts = 1000*3.3*val/1023;
+  battery_percent = (val - BATTERY_MINIMUM)/(BATTERY_MAXIMUM - BATTERY_MINIMUM) * 100;
+  if (battery_percent < 0) battery_percent = 0;
+  if (battery_percent > 100) battery_percent = 100;
+#ifdef DEBUG
+  Serial.print("Analog Read = ");
+  Serial.println(val);
+  Serial.print("Battery Milivolts = ");
+  Serial.println(battery_milivolts);
+  Serial.print("Battery Percent = ");
+  Serial.println(battery_percent);
+#endif
+}
+
 void print_packet() {
   
   HTTPClient http;
@@ -1055,7 +1083,7 @@ void print_packet() {
     request = my_webservice_url;                                                                                                      
     request = request + "?rr=" + millis() + "&zi=" + dex_tx_id + "&pc=" + my_password_code +
               "&lv=" + dex_num_decoder(Pkt.raw) + "&lf=" + dex_num_decoder(Pkt.filtered)*2 + "&db=" + Pkt.battery +
-              "&ts=" + ts + "&bp=0&bm=0&ct=37"; 
+              "&ts=" + ts + "&bp=" + battery_percent + "&bm=" + battery_milivolts + "&ct=37"; 
     http.begin(request); //HTTP
 #ifdef DEBUG
     Serial.println(request);
@@ -1112,7 +1140,7 @@ void print_bt_packet() {
   digitalWrite(LED_BUILTIN, LOW);
 #endif
   if (settings.bt_format == 1) {
-    sprintf(radio_buff,"%lu %d",dex_num_decoder(Pkt.raw),Pkt.battery);
+    sprintf(radio_buff,"%lu %d %d",dex_num_decoder(Pkt.raw),Pkt.battery,battery_milivolts);
     bt_command(radio_buff,0,"OK",2);
   }  
   else if (settings.bt_format == 2) { 
@@ -1120,8 +1148,8 @@ void print_bt_packet() {
     msg.raw = dex_num_decoder(Pkt.raw);
     msg.filtered = dex_num_decoder(Pkt.filtered)*2;
     msg.dex_battery = Pkt.battery;
-//    msg.my_battery = battery_capacity;
-    msg.my_battery = 0;
+    msg.my_battery = battery_percent;
+//    msg.my_battery = 0;
     msg.dex_src_id = Pkt.src_addr;
 //    msg.size = sizeof(msg);
     msg.size = 17;
@@ -1244,6 +1272,7 @@ void loop() {
   }
   if (get_packet ())
   {
+    mesure_battery();
 #ifdef BLUETOOTH
     print_bt_packet();
 #endif
