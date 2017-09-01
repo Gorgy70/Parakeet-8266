@@ -41,8 +41,8 @@ extern "C" {
 #define SERIAL_BUFFER_LEN 100 // Размер буфера для приема данных от порта BT
 
 // assuming that there is a 10k ohm resistor between BAT+ and BAT_PIN, and a 27k ohm resistor between BAT_PIN and GND, as per xBridge circuit diagrams
-#define BATTERY_MAXIMUM   973 //4.2V 1023*4.2*27(27+10)/3.3
-#define BATTERY_MINIMUM   678 //3.0V 1023*3.0*27(27+10)/3.3
+#define  BATTERY_MAXIMUM      973 //4.2V 1023*4.2*27(27+10)/3.3
+#define  BATTERY_MINIMUM      678 //3.0V 1023*3.0*27(27+10)/3.3
 
 #define my_webservice_url    "http://parakeet.esen.ru/receiver.cgi"
 #define my_webservice_reply  "!ACK"
@@ -994,16 +994,19 @@ boolean get_packet (void) {
 }
 
 void mesure_battery() {
-  unsigned int val;
+  int val;
 
   val = analogRead(BAT_PIN);
+  battery_milivolts = 1000*3.3*val/1023;
 #ifdef DEBUG
   Serial.print("Analog Read = ");
   Serial.println(val);
+  Serial.print("Milivolts = ");
+  Serial.println(battery_milivolts);
 #endif
-  battery_milivolts = 1000*3.3*val/1023;
-  if (val < BATTERY_MINIMUM) val = BATTERY_MINIMUM;
-  battery_percent = (val - BATTERY_MINIMUM)/(BATTERY_MAXIMUM - BATTERY_MINIMUM) * 100;
+  battery_milivolts = battery_milivolts*(10+27)/27;
+//  if (val < BATTERY_MINIMUM) val = BATTERY_MINIMUM;
+  battery_percent = 100* (val - BATTERY_MINIMUM)/(BATTERY_MAXIMUM - BATTERY_MINIMUM);
   if (battery_percent < 0) battery_percent = 0;
   if (battery_percent > 100) battery_percent = 100;
 #ifdef DEBUG
