@@ -41,8 +41,13 @@ extern "C" {
 #define SERIAL_BUFFER_LEN 100 // Размер буфера для приема данных от порта BT
 
 // assuming that there is a 10k ohm resistor between BAT+ and BAT_PIN, and a 27k ohm resistor between BAT_PIN and GND, as per xBridge circuit diagrams
-#define  BATTERY_MAXIMUM      973 //4.2V 1023*4.2*27(27+10)/3.3
-#define  BATTERY_MINIMUM      678 //3.0V 1023*3.0*27(27+10)/3.3
+#define  VREF                 3.48 // Опорное напряжение для аналогового входа
+#define  VMAX                 4.1  // Максимальное напряжение батареи
+#define  VMIN                 3.0  // Минимальное напряжение батареи
+#define  R1                   10   // Резистор делителя напряжения между BAT+ и BAT_PIN (кОм)
+#define  R2                   27   // Резистор делителя напряжения между BAT_PIN и GND (кОм)
+int      BATTERY_MAXIMUM  =   VMAX*1023*R2/(R1+R2)/VREF ; //950 4.2V 1023*4.2*27(27+10)/3.3
+int      BATTERY_MINIMUM  =   VMIN*1023*R2/(R1+R2)/VREF ; //678 3.0V 1023*3.0*27/(27+10)/3.3
 
 #define my_webservice_url    "http://parakeet.esen.ru/receiver.cgi"
 #define my_webservice_reply  "!ACK"
@@ -760,7 +765,7 @@ void setup() {
 #endif
   pinMode(LEN_PIN, OUTPUT);
   pinMode(GDO0_PIN, INPUT);
-  pinMode(BAT_PIN, INPUT);
+//  pinMode(BAT_PIN, INPUT);
 //  analogReference(DEFAULT); 
   
   // initialize digital pin LED_BUILTIN as an output.
@@ -997,7 +1002,8 @@ void mesure_battery() {
   int val;
 
   val = analogRead(BAT_PIN);
-  battery_milivolts = 1000*3.3*val/1023;
+//  val = adc.read(0)  ;
+  battery_milivolts = 1000*VREF*val/1023;
 #ifdef DEBUG
   Serial.print("Analog Read = ");
   Serial.println(val);
