@@ -1,4 +1,4 @@
-#define DEBUG
+//#define DEBUG
 #define INT_BLINK_LED
 //#define EXT_BLINK_LED
 #define BLUETOOTH
@@ -41,8 +41,13 @@ extern "C" {
 #define SERIAL_BUFFER_LEN 100 // Размер буфера для приема данных от порта BT
 
 // assuming that there is a 10k ohm resistor between BAT+ and BAT_PIN, and a 27k ohm resistor between BAT_PIN and GND, as per xBridge circuit diagrams
-#define BATTERY_MAXIMUM   973 //4.2V 1023*4.2*27(27+10)/3.3
-#define BATTERY_MINIMUM   678 //3.0V 1023*3.0*27(27+10)/3.3
+#define  VREF                 3.48 // Опорное напряжение для аналогового входа
+#define  VMAX                 4.1  // Максимальное напряжение батареи
+#define  VMIN                 3.0  // Минимальное напряжение батареи
+#define  R1                   10   // Резистор делителя напряжения между BAT+ и BAT_PIN (кОм)
+#define  R2                   27   // Резистор делителя напряжения между BAT_PIN и GND (кОм)
+int      BATTERY_MAXIMUM  =   VMAX*1023*R2/(R1+R2)/VREF ; //950 4.2V 1023*4.2*27(27+10)/3.3
+int      BATTERY_MINIMUM  =   VMIN*1023*R2/(R1+R2)/VREF ; //678 3.0V 1023*3.0*27/(27+10)/3.3
 
 #define my_webservice_url    "http://parakeet.esen.ru/receiver.cgi"
 #define my_webservice_reply  "!ACK"
@@ -330,10 +335,16 @@ void blink_sequence_red(const char *sequence) {
 void blink_sequence(const char *sequence) {
   byte i;
 
-  digitalWrite(LED_BUILTIN, LOW);
+  for (i = 0; i < 3; i++) {
+    digitalWrite(LED_BUILTIN, HIGH);
+    delay(500); 
+    digitalWrite(LED_BUILTIN, LOW);
+    delay(100);     
+  }
+  digitalWrite(LED_BUILTIN, HIGH);
   delay(500); 
   for (i = 0; i < strlen(sequence); i++) {
-    digitalWrite(LED_BUILTIN, HIGH);
+    digitalWrite(LED_BUILTIN, LOW);
     switch (sequence[i]) {
       case '0': 
         delay(500);
@@ -345,7 +356,7 @@ void blink_sequence(const char *sequence) {
         delay(2000);
         break;
     }
-    digitalWrite(LED_BUILTIN, LOW);
+    digitalWrite(LED_BUILTIN, HIGH);
     delay(500); 
   }  
 }
@@ -754,8 +765,8 @@ void setup() {
 #endif
   pinMode(LEN_PIN, OUTPUT);
   pinMode(GDO0_PIN, INPUT);
-  pinMode(BAT_PIN, INPUT);
-  analogReference(DEFAULT); 
+//  pinMode(BAT_PIN, INPUT);
+//  analogReference(DEFAULT); 
   
   // initialize digital pin LED_BUILTIN as an output.
 #ifdef INT_BLINK_LED
@@ -988,16 +999,23 @@ boolean get_packet (void) {
 }
 
 void mesure_battery() {
-  unsigned int val;
+  int val;
 
   val = analogRead(BAT_PIN);
-  battery_milivolts = 1000*3.3*val/1023;
-  battery_percent = (val - BATTERY_MINIMUM)/(BATTERY_MAXIMUM - BATTERY_MINIMUM) * 100;
-  if (battery_percent < 0) battery_percent = 0;
-  if (battery_percent > 100) battery_percent = 100;
+//  val = adc.read(0)  ;
+  battery_milivolts = 1000*VREF*val/1023;
 #ifdef DEBUG
   Serial.print("Analog Read = ");
   Serial.println(val);
+  Serial.print("Milivolts = ");
+  Serial.println(battery_milivolts);
+#endif
+  battery_milivolts = battery_milivolts*(10+27)/27;
+//  if (val < BATTERY_MINIMUM) val = BATTERY_MINIMUM;
+  battery_percent = 100* (val - BATTERY_MINIMUM)/(BATTERY_MAXIMUM - BATTERY_MINIMUM);
+  if (battery_percent < 0) battery_percent = 0;
+  if (battery_percent > 100) battery_percent = 100;
+#ifdef DEBUG
   Serial.print("Battery Milivolts = ");
   Serial.println(battery_milivolts);
   Serial.print("Battery Percent = ");
@@ -1065,7 +1083,6 @@ void print_packet() {
     delay(500);
     i++;
     if (i == wifi_wait_tyme*2) break;
-    if (WiFi.status() == WL_NO_SSID_AVAIL) break;
   }
 #ifdef DEBUG
   Serial.println();
